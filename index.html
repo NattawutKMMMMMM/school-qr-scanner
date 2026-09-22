@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="th"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>กล้องสแกน QR สำหรับครู</title>
+<style>
+:root{color-scheme:light;font-family:system-ui,"Noto Sans Thai",sans-serif}*{box-sizing:border-box}body{margin:0;background:#eef3fa;color:#172b4d}header{background:#173f75;color:white;padding:20px 16px}main{max-width:620px;margin:0 auto;padding:16px}.card{background:#fff;border:1px solid #d3dfed;border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:0 2px 12px #0d2a5010}h1{font-size:21px;margin:0}h2{font-size:16px;margin:0 0 10px}p{font-size:13px;line-height:1.6}button,.fileBtn{background:#155e48;color:#fff;border:0;border-radius:9px;padding:12px 14px;font-weight:700;font-size:14px;cursor:pointer;display:inline-block}button:disabled{opacity:.45;cursor:not-allowed}.alt{background:#1d497c}.muted{background:#5d6a7b}.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}#externalReader{max-width:460px;margin:8px auto;overflow:hidden;border-radius:12px}#externalReader video{max-width:100%}#status{border-radius:9px;padding:12px;font-size:14px;background:#e9f1fa;white-space:pre-wrap;overflow-wrap:anywhere}#status.good{background:#e5f7ee;color:#125737}#status.warn{background:#fff1d9;color:#805000}#status.bad{background:#ffeded;color:#a02222}textarea{width:100%;min-height:70px;resize:vertical;border:1px solid #becbda;border-radius:7px;padding:8px;font-size:12px;overflow-wrap:anywhere}.hidden{display:none!important}.note{font-size:12px;color:#50637a}a{color:#164d98}
+</style>
+<script defer src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head><body>
+<header><h1>📷 กล้องสแกน QR สำหรับครู</h1><p style="margin-bottom:0">สแกนบัตรนักเรียนหรือ QR กลุ่ม จากเว็บไซต์ HTTPS แยก</p></header>
+<main>
+<section class="card"><h2>1. สแกน QR</h2><p class="note">เปิดหน้านี้ผ่านปุ่มในระบบคะแนน ไม่ต้องกรอก PIN หรือคะแนนที่นี่</p>
+<div class="row"><button id="startBtn" type="button">เปิดกล้อง</button><button id="stopBtn" type="button" class="muted" disabled>ปิดกล้อง</button><button id="nextBtn" type="button" class="alt hidden">สแกนใบถัดไป</button></div>
+<div id="externalReader"></div><p id="status" role="status" aria-live="polite">กด “เปิดกล้อง” แล้วอนุญาตกล้องให้เว็บไซต์นี้</p>
+</section>
+<section class="card"><h2>2. รับ QR กลับไปที่ระบบคะแนน</h2>
+<p>เมื่ออ่าน QR ได้ หน้านี้จะพยายามส่งข้อความ QR ไปยังหน้าระบบคะแนนที่เปิดหน้ากล้องขึ้นมา โดยไม่ส่ง PIN หรือคะแนน</p>
+<div id="copyBox" class="hidden"><p id="sendResult" class="note"></p><div class="row"><button id="copyBtn" type="button" class="alt">คัดลอกข้อความ QR</button><button id="showBtn" type="button" class="muted">แสดงข้อความเพื่อคัดลอกเอง</button></div><textarea id="resultText" class="hidden" readonly aria-label="ข้อความจาก QR"></textarea><p class="note">หากไม่มีชื่อปรากฏในระบบคะแนน ให้กด “คัดลอกข้อความ QR” แล้วกลับไปวางในช่อง QR ของหน้าครูและกด “ตรวจ QR”</p></div>
+<p class="note">ต้องเปิดหน้าระบบคะแนนค้างไว้ และเลือกวิชา/ภาระงานก่อนเปิดหน้านี้ หากเปิดกล้องผ่านลิงก์ตรง การส่งข้อความกลับโดยอัตโนมัติอาจไม่ทำงาน</p></section>
+<section class="card"><h2>กล้องยังไม่ทำงาน?</h2><p class="note">ตรวจสิทธิ์กล้องของ <b>เว็บไซต์นี้</b> และสิทธิ์กล้องในอุปกรณ์ หากถูกบล็อกด้วยนโยบายเครื่องหรือเว็บเบราว์เซอร์ การย้ายหน้าเว็บอย่างเดียวอาจยังแก้ไม่ได้</p><label class="fileBtn alt" for="picInput">อ่าน QR จากภาพแทน</label><input id="picInput" type="file" accept="image/*" class="hidden"></section>
+<footer class="note" style="text-align:center;margin-bottom:20px">หน้ากล้องนี้ไม่เรียก API ของ Google Sheets และไม่บันทึกภาพหรือ QR ลงเซิร์ฟเวอร์ของผู้จัดทำหน้าเว็บ · ตัวอ่าน QR โหลดไลบรารีจาก jsDelivr</footer>
+</main><script>
+'use strict';
+const PROTOCOL='OBEC_SCORE_EXTERNAL_QR_V1',ACK='OBEC_SCORE_EXTERNAL_QR_ACK_V1';
+const params=new URL(location.href).searchParams;
+const receiver=params.get('receiver')||'';
+let qr=null,running=false,busy=false,decoded='',lastId='',ackTimer=null;
+const $=id=>document.getElementById(id);
+function status(msg,cls){const el=$('status');el.textContent=msg;el.className=cls||'';}
+function safeReceiver(){try{const u=new URL(receiver);return u.protocol==='https:' && u.origin===receiver?receiver:'';}catch(e){return '';}}
+function resetCopy(){decoded='';lastId='';$('copyBox').classList.add('hidden');$('resultText').value='';$('resultText').classList.add('hidden');$('nextBtn').classList.add('hidden');$('startBtn').disabled=false;}
+async function stopCamera(){if(qr){try{if(running)await qr.stop();}catch(e){}try{await qr.clear();}catch(e){}}running=false;qr=null;$('stopBtn').disabled=true;}
+async function startCamera(){if(busy||running)return;resetCopy();busy=true;$('startBtn').disabled=true;status('กำลังขออนุญาตเปิดกล้อง...');
+  try{
+    if(typeof Html5Qrcode!=='function')throw new Error('โหลดไลบรารีอ่าน QR ไม่สำเร็จ กรุณาตรวจการเชื่อมต่ออินเทอร์เน็ต');
+    qr=new Html5Qrcode('externalReader',{verbose:false});
+    const options={fps:9,qrbox:{width:220,height:220}};
+    try{await qr.start({facingMode:'environment'},options,onDecoded,()=>{});}
+    catch(first){
+      if(/NotAllowed|Permission|denied|SecurityError/i.test(String(first)))throw first;
+      const cams=await Html5Qrcode.getCameras();if(!cams||!cams.length)throw first;
+      await qr.start(cams[0].id,options,onDecoded,()=>{});
+    }
+    running=true;$('stopBtn').disabled=false;status('พร้อมสแกน: หันกล้องไปที่บัตร QR ของนักเรียนหรือกลุ่ม','good');
+  }catch(e){await stopCamera();status('เปิดกล้องไม่สำเร็จ: '+String(e&&e.message||e)+'\nกรุณาตรวจสิทธิ์กล้องของเว็บไซต์นี้ หรือใช้ปุ่มอ่าน QR จากภาพ','bad');$('startBtn').disabled=false;}
+  finally{busy=false;}
+}
+async function onDecoded(text){if(busy||!text)return;busy=true;try{await stopCamera();receiveText(String(text));}finally{busy=false;}}
+function receiveText(text){
+  const val=String(text||'').trim();if(!val||val.length>2048){status('ข้อมูล QR ไม่ถูกต้องหรือยาวเกินไป','bad');$('startBtn').disabled=false;return;}
+  decoded=val;lastId=(crypto.randomUUID?crypto.randomUUID():String(Date.now())+String(Math.random()));
+  $('resultText').value=val;$('copyBox').classList.remove('hidden');$('nextBtn').classList.remove('hidden');$('startBtn').disabled=true;
+  const target=safeReceiver();let attempted=false;
+  if(window.opener&&!window.opener.closed&&target){try{window.opener.postMessage({type:PROTOCOL,scanId:lastId,text:val},target);attempted=true;}catch(e){}}
+  $('sendResult').textContent=attempted?'กำลังรอระบบคะแนนตอบรับ... หากระบบคะแนนไม่เปลี่ยน ให้คัดลอก QR กลับไปวาง':'ไม่สามารถส่งข้อความกลับอัตโนมัติได้ กรุณาใช้ปุ่มคัดลอก QR';
+  status('อ่าน QR สำเร็จแล้ว! กลับไปตรวจรายชื่อและบันทึกคะแนนในระบบคะแนน','good');
+  if(ackTimer)clearTimeout(ackTimer);
+  if(attempted)ackTimer=setTimeout(()=>{if($('sendResult').dataset.acked!==lastId)$('sendResult').textContent='ยังไม่ได้รับการยืนยันจากระบบคะแนน กรุณาใช้ปุ่มคัดลอก QR กลับไปวาง';},2000);
+}
+window.addEventListener('message',e=>{
+  if(!window.opener||e.source!==window.opener||e.origin!==safeReceiver())return;
+  const d=e.data;if(d&&d.type===ACK&&d.scanId===lastId){$('sendResult').dataset.acked=lastId;$('sendResult').textContent='ระบบคะแนนรับ QR แล้ว กรุณากลับไปตรวจรายชื่อ/คะแนนที่หน้าครู';}
+});
+$('startBtn').addEventListener('click',startCamera);
+$('stopBtn').addEventListener('click',async()=>{await stopCamera();status('ปิดกล้องแล้ว');$('startBtn').disabled=false;});
+$('nextBtn').addEventListener('click',()=>{resetCopy();startCamera();});
+$('showBtn').addEventListener('click',()=>{$('resultText').classList.remove('hidden');$('resultText').focus();$('resultText').select();});
+$('copyBtn').addEventListener('click',async()=>{if(!decoded)return;try{await navigator.clipboard.writeText(decoded);$('sendResult').textContent='คัดลอกข้อความ QR แล้ว: กลับไปวางในช่อง QR ของระบบคะแนน';}
+  catch(e){$('resultText').classList.remove('hidden');$('resultText').focus();$('resultText').select();$('sendResult').textContent='เบราว์เซอร์ไม่อนุญาตคัดลอกอัตโนมัติ กรุณาคัดลอกข้อความที่เลือกไว้ด้วยตนเอง';}});
+$('picInput').addEventListener('change',async function(){const file=this.files&&this.files[0];this.value='';if(!file||busy)return;
+  busy=true;try{await stopCamera();if(typeof Html5Qrcode!=='function')throw new Error('ยังโหลดตัวอ่าน QR ไม่สำเร็จ');
+    qr=new Html5Qrcode('externalReader');const text=await qr.scanFile(file,true);await stopCamera();receiveText(text);
+  }catch(e){await stopCamera();status('อ่านภาพ QR ไม่สำเร็จ กรุณาถ่ายใหม่ให้เห็น QR ชัดเจน ('+String(e.message||e)+')','bad');$('startBtn').disabled=false;}
+  finally{busy=false;}});
+window.addEventListener('pagehide',()=>{stopCamera();});
+</script></body></html>
